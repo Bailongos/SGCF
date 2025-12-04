@@ -1,11 +1,7 @@
-import { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import { AlumnosService } from '../../services/alumnos.service';
+import { CrudService } from '../../services/crud.service';
+import { buildCrudRoutes } from '../shared/crud.routes';
 
-const alumnosRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
-  // GET /api/alumnos
-  fastify.get('/', async () => {
-    return AlumnosService.getAll();
-  });
-};
+// idIsNumber = false porque matricula es texto
+const alumnosService = new CrudService('alumnos', 'matricula', false);
 
-export default alumnosRoutes;
+export default buildCrudRoutes(alumnosService, 'matricula');

@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import { AppRoutes } from './routes';
 import { dbPool } from '../data';
 
+
 interface ServerOptions {
   port: number;
 }
@@ -18,8 +19,13 @@ export class Server {
 
   async start() {
     // Plugins / middlewares globales
-    await this.app.register(cors, { origin: true });
-
+    // await this.app.register(cors, { origin: true });
+    await this.app.register(cors, {
+      origin: true, // permite cualquier origen (en dev está bien)
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
+    });
+    
     // Health
     this.app.get('/health', async () => ({
       ok: true,
