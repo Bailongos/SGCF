@@ -1,3 +1,4 @@
+//cuentas.routes.ts
 import { CrudService } from '../../services/crud.service';
 import { buildCrudRoutes } from '../shared/crud.routes';
 

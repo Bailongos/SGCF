@@ -1,3 +1,4 @@
+// server.ts
 import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import { AppRoutes } from './routes';
