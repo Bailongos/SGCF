@@ -3,6 +3,7 @@ import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import { AppRoutes } from './routes';
 import { dbPool } from '../data';
+import { authMiddleware } from './shared/auth.middleware';
 
 
 interface ServerOptions {
@@ -24,7 +25,7 @@ export class Server {
     await this.app.register(cors, {
       origin: true, // permite cualquier origen (en dev está bien)
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id', 'x-user-carrera'],
     });
     
     // Health
@@ -34,6 +35,14 @@ export class Server {
     }));
 
     // Rutas de la app (módulos)
+    
+    // Aplicar middleware de autenticación a todas las rutas bajo /api (opcional) o global
+    this.app.addHook('preHandler', async (request, reply) => {
+      // Omitir healthcheck y rutas de autenticación
+      if (request.url.startsWith('/health') || request.url.startsWith('/api/auth')) return;
+      await authMiddleware(request, reply);
+    });
+
     AppRoutes.register(this.app);
 
     // Cerrar pool cuando el server se apague

@@ -1,19 +1,26 @@
 // src/presentation/shared/crud.routes.ts
 import type { FastifyPluginAsync } from 'fastify';
-import { CrudService } from '../../services/crud.service';
+import { CrudService, CrudOptions } from '../../services/crud.service';
 
 interface IdParams {
   [key: string]: string;
 }
 
+export interface BuildCrudOptions {
+  resolveScope?: (request: any) => CrudOptions | undefined;
+}
+
 export const buildCrudRoutes = (
   service: CrudService,
   idParamName: string = 'id',
+  opts?: BuildCrudOptions,
 ): FastifyPluginAsync => {
   const routes: FastifyPluginAsync = async (fastify) => {
     // GET /
-    fastify.get('/', async () => {
-      return service.getAll();
+    // GET /
+    fastify.get('/', async (request) => {
+      const scopeOptions = opts?.resolveScope?.(request);
+      return service.getAll(scopeOptions);
     });
 
     // GET /:id
@@ -21,10 +28,11 @@ export const buildCrudRoutes = (
       `/:${idParamName}`,
       async (request, reply) => {
         const id = request.params[idParamName];
-        const row = await service.getById(id);
+        const scopeOptions = opts?.resolveScope?.(request);
+        const row = await service.getById(id, scopeOptions);
 
         if (!row) {
-          return reply.code(404).send({ message: 'No encontrado' });
+          return reply.code(404).send({ message: 'No encontrado o sin permisos' });
         }
 
         return row;
@@ -35,9 +43,20 @@ export const buildCrudRoutes = (
     fastify.post(
       '/',
       async (request, reply) => {
-        const body = request.body as Record<string, unknown>;
-        const created = await service.create(body);
-        return reply.code(201).send(created);
+        try {
+          const body = request.body as Record<string, unknown>;
+          const created = await service.create(body);
+          return reply.code(201).send(created);
+        } catch (err: any) {
+          fastify.log.error(err);
+          return reply.code(500).send({
+            message: 'Error al crear el registro',
+            detail: err.message,
+            code: err.code,
+            severity: err.severity,
+            constraint: err.constraint
+          });
+        }
       },
     );
 
@@ -45,15 +64,34 @@ export const buildCrudRoutes = (
     fastify.put<{ Params: IdParams }>(
       `/:${idParamName}`,
       async (request, reply) => {
-        const id = request.params[idParamName];
-        const body = request.body as Record<string, unknown>;
-        const updated = await service.update(id, body);
+        try {
+          const id = request.params[idParamName];
+          const body = request.body as Record<string, unknown>;
+          const scopeOptions = opts?.resolveScope?.(request);
 
-        if (!updated) {
-          return reply.code(404).send({ message: 'No encontrado' });
+          // Validar alcance primero
+          const existing = await service.getById(id, scopeOptions);
+          if (!existing) {
+            return reply.code(404).send({ message: 'No encontrado o sin permisos' });
+          }
+
+          const updated = await service.update(id, body);
+
+          if (!updated) {
+            return reply.code(404).send({ message: 'No se pudo actualizar' });
+          }
+
+          return updated;
+        } catch (err: any) {
+          fastify.log.error(err);
+          return reply.code(500).send({
+            message: 'Error al actualizar el registro',
+            detail: err.message,
+            code: err.code,
+            severity: err.severity,
+            constraint: err.constraint
+          });
         }
-
-        return updated;
       },
     );
 
@@ -62,12 +100,19 @@ export const buildCrudRoutes = (
       `/:${idParamName}`,
       async (request, reply) => {
         const id = request.params[idParamName];
+        const scopeOptions = opts?.resolveScope?.(request);
 
         try {
+          // Validar alcance primero
+          const existing = await service.getById(id, scopeOptions);
+          if (!existing) {
+            return reply.code(404).send({ message: 'No encontrado o sin permisos' });
+          }
+
           const deleted = await service.delete(id);
 
           if (!deleted) {
-            return reply.code(404).send({ message: 'No encontrado' });
+            return reply.code(404).send({ message: 'No se pudo eliminar' });
           }
 
           return deleted;

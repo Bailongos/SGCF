@@ -14,8 +14,15 @@ const alumnosRoutes: FastifyPluginAsync = async (fastify) => {
   // ======================================================
   // GET /api/alumnos
   // ======================================================
-  fastify.get('/', async () => {
-    return alumnosService.getAll();
+  fastify.get('/', async (request) => {
+    const user = (request as any).user;
+    const options = {
+      scopeParams: {
+        tableField: '"id_carrera"',
+        idCarrera: user?.id_carrera
+      }
+    };
+    return alumnosService.getAll(options);
   });
 
   // ======================================================
@@ -24,8 +31,16 @@ const alumnosRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: IdParams }>(
     '/:matricula',
     async (request, reply) => {
+      const user = (request as any).user;
+      const options = {
+        scopeParams: {
+          tableField: '"id_carrera"',
+          idCarrera: user?.id_carrera
+        }
+      };
+      
       const matricula = request.params.matricula;
-      const row = await alumnosService.getById(matricula);
+      const row = await alumnosService.getById(matricula, options);
 
       if (!row) {
         return reply.code(404).send({ message: 'No encontrado' });
@@ -42,46 +57,62 @@ const alumnosRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     '/',
     async (request, reply) => {
-      const body = request.body as Record<string, unknown>;
-
-      // 1) Creamos el alumno con el CrudService (como siempre)
-      const alumno = await alumnosService.create(body);
-
-      // 2) Intentamos crear sus cuentas por cobrar (UADEC / ESCUELA)
       try {
-        // Obtenemos ciclo actual
-        const cicloRes = await dbPool.query(
-          `SELECT id_ciclo
-           FROM ciclos_escolares
-           WHERE es_actual = TRUE
-           LIMIT 1`,
-        );
-        const ciclo = cicloRes.rows[0];
+        const body = request.body as Record<string, unknown>;
+        const user = (request as any).user;
 
-        if (ciclo && (alumno as any).matricula) {
-          const matricula = (alumno as any).matricula as string;
-
-          // Insertamos las dos cuentas por cobrar base
-          await dbPool.query(
-            `INSERT INTO cuentas_por_cobrar (matricula, concepto, id_ciclo, monto, pagado)
-             VALUES 
-               ($1, 'UADEC',   $2, 4500.00, FALSE),
-               ($1, 'ESCUELA', $2, 2500.00, FALSE)
-             ON CONFLICT (matricula, concepto, id_ciclo) DO NOTHING`,
-            [matricula, ciclo.id_ciclo],
-          );
+        // Si es coordinador, solo puede crear alumnos en su carrera
+        if (user?.id_carrera !== null && user?.id_carrera !== undefined) {
+          if (body.id_carrera != user.id_carrera) {
+            return reply.code(403).send({ message: 'No tienes permisos para crear alumnos en esta carrera' });
+          }
         }
-      } catch (err) {
-        // No rompemos la creación del alumno si falla esta parte,
-        // solo lo dejamos registrado en logs
-        fastify.log.error({
-          msg: 'Error al generar cuentas por cobrar para el alumno',
-          err,
+
+        // 1) Creamos el alumno con el CrudService (como siempre)
+        const alumno = await alumnosService.create(body);
+
+        // 2) Intentamos crear sus cuentas por cobrar (UADEC / ESCUELA)
+        try {
+          // Obtenemos ciclo actual
+          const cicloRes = await dbPool.query(
+            `SELECT id_ciclo
+             FROM ciclos_escolares
+             WHERE es_actual = TRUE
+             LIMIT 1`,
+          );
+          const ciclo = cicloRes.rows[0];
+
+          if (ciclo && (alumno as any).matricula) {
+            const matricula = (alumno as any).matricula as string;
+
+            // Insertamos las dos cuentas por cobrar base
+            await dbPool.query(
+              `INSERT INTO cuentas_por_cobrar (matricula, concepto, id_ciclo, monto, pagado)
+               VALUES 
+                 ($1, 'UADEC',   $2, 4500.00, FALSE),
+                 ($1, 'ESCUELA', $2, 2500.00, FALSE)
+               ON CONFLICT (matricula, concepto, id_ciclo) DO NOTHING`,
+              [matricula, ciclo.id_ciclo],
+            );
+          }
+        } catch (err) {
+          // No rompemos la creación del alumno si falla esta parte,
+          // solo lo dejamos registrado en logs
+          fastify.log.error({
+            msg: 'Error al generar cuentas por cobrar para el alumno',
+            err,
+          });
+        }
+
+        // Respondemos con el alumno creado (como antes)
+        return reply.code(201).send(alumno);
+      } catch (err: any) {
+        fastify.log.error(err);
+        return reply.code(500).send({
+          message: 'Error interno al crear el alumno',
+          detail: err?.message ?? String(err),
         });
       }
-
-      // Respondemos con el alumno creado (como antes)
-      return reply.code(201).send(alumno);
     },
   );
 
@@ -91,15 +122,44 @@ const alumnosRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.put<{ Params: IdParams }>(
     '/:matricula',
     async (request, reply) => {
-      const matricula = request.params.matricula;
-      const body = request.body as Record<string, unknown>;
-      const updated = await alumnosService.update(matricula, body);
+      try {
+        const matricula = request.params.matricula;
+        const body = request.body as Record<string, unknown>;
+        const user = (request as any).user;
 
-      if (!updated) {
-        return reply.code(404).send({ message: 'No encontrado' });
+        // Validar que el alumno pertenece al scope del coordinador
+        const options = {
+          scopeParams: {
+            tableField: '"id_carrera"',
+            idCarrera: user?.id_carrera
+          }
+        };
+        const existing = await alumnosService.getById(matricula, options);
+        if (!existing) {
+          return reply.code(404).send({ message: 'No encontrado o sin permisos' });
+        }
+
+        // Evitar que el coordinador mueva de carrera al alumno hacia otra
+        if (user?.id_carrera !== null && user?.id_carrera !== undefined) {
+          if (body.id_carrera && body.id_carrera != user.id_carrera) {
+            return reply.code(403).send({ message: 'No tienes permisos para cambiar a una carrera fuera de tu alcance' });
+          }
+        }
+
+        const updated = await alumnosService.update(matricula, body);
+
+        if (!updated) {
+          return reply.code(404).send({ message: 'No encontrado' });
+        }
+
+        return updated;
+      } catch (err: any) {
+        fastify.log.error(err);
+        return reply.code(500).send({
+          message: 'Error interno al actualizar el alumno',
+          detail: err?.message ?? String(err),
+        });
       }
-
-      return updated;
     },
   );
 
@@ -110,8 +170,20 @@ const alumnosRoutes: FastifyPluginAsync = async (fastify) => {
     '/:matricula',
     async (request, reply) => {
       const matricula = request.params.matricula;
+      const user = (request as any).user;
 
       try {
+        const options = {
+          scopeParams: {
+            tableField: '"id_carrera"',
+            idCarrera: user?.id_carrera
+          }
+        };
+        const existing = await alumnosService.getById(matricula, options);
+        if (!existing) {
+          return reply.code(404).send({ message: 'No encontrado o sin permisos' });
+        }
+
         const deleted = await alumnosService.delete(matricula);
 
         if (!deleted) {

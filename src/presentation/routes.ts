@@ -13,6 +13,8 @@ import observacionesRoutes from './obsercaciones/observaciones.routes';
 import cuentasRoutes from './cuentas/cuentas.routes';
 import pagosRoutes from './pagos/pagos.routes';
 import bitacoraRoutes from './bitacora/bitacora.routes';
+import authRoutes from './auth/auth.routes';
+import adminRoutes from './admin/admin.routes';
 
 export class AppRoutes {
   static register(app: FastifyInstance) {
@@ -26,7 +28,7 @@ export class AppRoutes {
     app.register(conceptosRoutes, { prefix: '/api/conceptos' });
 
     // ======= USUARIOS / OBSERVACIONES =======
-    app.register(usuariosRoutes, { prefix: '/api/usuarios' });
+    app.register(usuariosRoutes, { prefix: '/api/usuarios' }); // Consider restricting this
     app.register(observacionesRoutes, { prefix: '/api/observaciones' });
 
     // ======= FINANCIERO =======
@@ -35,5 +37,11 @@ export class AppRoutes {
 
     // ======= AUDITORÍA =======
     app.register(bitacoraRoutes, { prefix: '/api/bitacora' });
+
+    // ======= AUTENTICACIÓN =======
+    app.register(authRoutes, { prefix: '/api/auth' });
+    
+    // ======= ADMIN =======
+    app.register(adminRoutes, { prefix: '/api/admin' });
   }
 }

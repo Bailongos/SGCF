@@ -12,13 +12,20 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@azure/msal-node": "^5.0.4",
     "@fastify/cors": "^11.1.0",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^16.0.0",
     "env-var": "^7.5.0",
     "fastify": "^5.0.0",
+    "google-auth-library": "^10.5.0",
+    "jsonwebtoken": "^9.0.3",
+    "jwks-rsa": "^3.2.2",
     "pg": "^8.0.0"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.0.0",
     "@types/pg": "^8.15.6",
     "ts-node-dev": "^2.0.0",
