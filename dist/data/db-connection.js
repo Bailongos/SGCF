@@ -9,7 +9,7 @@ exports.dbPool = new pg_1.Pool({
 });
 // Configurar search_path global al conectar
 exports.dbPool.on('connect', async (client) => {
-    await client.query('SET search_path TO "control financiero", public');
+    await client.query('SET search_path TO "control financiero"');
 });
 async function testDbConnection() {
     // Simple ping

@@ -7,7 +7,7 @@ export const dbPool = new Pool({
 
 // Configurar search_path global al conectar
 dbPool.on('connect', async (client) => {
-  await client.query('SET search_path TO "control financiero", public');
+  await client.query('SET search_path TO "control financiero"');
 });
 
 export async function testDbConnection() {
