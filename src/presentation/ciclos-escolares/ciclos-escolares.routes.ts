@@ -35,7 +35,7 @@ const ciclosRoutes: FastifyPluginAsync = async (fastify) => {
       const currentRes = await dbPool.query(
         `
         SELECT *
-          FROM ciclos_escolares
+          FROM "control financiero".ciclos_escolares
          WHERE fecha_inicio <= $1::date
            AND fecha_fin    >= $1::date
          ORDER BY fecha_inicio DESC
@@ -49,7 +49,7 @@ const ciclosRoutes: FastifyPluginAsync = async (fastify) => {
 
         // Marcamos este como el único "actual"
         await dbPool.query(
-          `UPDATE ciclos_escolares
+          `UPDATE "control financiero".ciclos_escolares
               SET es_actual = (id_ciclo = $1)`,
           [cicloActual.id_ciclo],
         );
@@ -83,7 +83,7 @@ const ciclosRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       await dbPool.query(
-        `UPDATE ciclos_escolares
+        `UPDATE "control financiero".ciclos_escolares
             SET es_actual = (id_ciclo = $1)`,
         [(creado as any).id_ciclo],
       );

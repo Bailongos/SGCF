@@ -26,7 +26,7 @@ const ciclosRoutes = async (fastify) => {
             // 1️⃣ ¿Ya hay un ciclo que cubra la fecha de HOY?
             const currentRes = await data_1.dbPool.query(`
         SELECT *
-          FROM ciclos_escolares
+          FROM "control financiero".ciclos_escolares
          WHERE fecha_inicio <= $1::date
            AND fecha_fin    >= $1::date
          ORDER BY fecha_inicio DESC
@@ -35,7 +35,7 @@ const ciclosRoutes = async (fastify) => {
             if (currentRes.rows.length > 0) {
                 const cicloActual = currentRes.rows[0];
                 // Marcamos este como el único "actual"
-                await data_1.dbPool.query(`UPDATE ciclos_escolares
+                await data_1.dbPool.query(`UPDATE "control financiero".ciclos_escolares
               SET es_actual = (id_ciclo = $1)`, [cicloActual.id_ciclo]);
                 return reply.code(200).send(cicloActual);
             }
@@ -61,7 +61,7 @@ const ciclosRoutes = async (fastify) => {
                 fecha_fin,
                 es_actual: true,
             });
-            await data_1.dbPool.query(`UPDATE ciclos_escolares
+            await data_1.dbPool.query(`UPDATE "control financiero".ciclos_escolares
             SET es_actual = (id_ciclo = $1)`, [creado.id_ciclo]);
             return reply.code(201).send(creado);
         }

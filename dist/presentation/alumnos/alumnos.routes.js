@@ -10,27 +10,40 @@ const alumnosRoutes = async (fastify) => {
     // ======================================================
     fastify.get('/', async (request) => {
         const user = request.user;
-        const options = {
-            scopeParams: {
-                tableField: '"id_carrera"',
-                idCarrera: user?.id_carrera
-            }
-        };
-        return alumnosService.getAll(options);
+        // Manual query to join career info
+        let sql = `
+        SELECT a.*, c.nombre as nombre_carrera, c.clave as clave_carrera
+        FROM "control financiero".alumnos a
+        LEFT JOIN "control financiero".carreras c ON a.id_carrera = c.id_carrera
+        WHERE 1=1
+    `;
+        const values = [];
+        if (user?.id_carrera) {
+            sql += ' AND a.id_carrera = $1';
+            values.push(user.id_carrera);
+        }
+        const { rows } = await data_1.dbPool.query(sql, values);
+        return rows;
     });
     // ======================================================
     // GET /api/alumnos/:matricula
     // ======================================================
     fastify.get('/:matricula', async (request, reply) => {
         const user = request.user;
-        const options = {
-            scopeParams: {
-                tableField: '"id_carrera"',
-                idCarrera: user?.id_carrera
-            }
-        };
         const matricula = request.params.matricula;
-        const row = await alumnosService.getById(matricula, options);
+        let sql = `
+        SELECT a.*, c.nombre as nombre_carrera, c.clave as clave_carrera
+        FROM "control financiero".alumnos a
+        LEFT JOIN "control financiero".carreras c ON a.id_carrera = c.id_carrera
+        WHERE a.matricula = $1
+      `;
+        const values = [matricula];
+        if (user?.id_carrera) {
+            sql += ' AND a.id_carrera = $2';
+            values.push(user.id_carrera);
+        }
+        const { rows } = await data_1.dbPool.query(sql, values);
+        const row = rows[0];
         if (!row) {
             return reply.code(404).send({ message: 'No encontrado' });
         }
@@ -56,14 +69,14 @@ const alumnosRoutes = async (fastify) => {
             try {
                 // Obtenemos ciclo actual
                 const cicloRes = await data_1.dbPool.query(`SELECT id_ciclo
-             FROM ciclos_escolares
+             FROM "control financiero".ciclos_escolares
              WHERE es_actual = TRUE
              LIMIT 1`);
                 const ciclo = cicloRes.rows[0];
                 if (ciclo && alumno.matricula) {
                     const matricula = alumno.matricula;
                     // Insertamos las dos cuentas por cobrar base
-                    await data_1.dbPool.query(`INSERT INTO cuentas_por_cobrar (matricula, concepto, id_ciclo, monto, pagado)
+                    await data_1.dbPool.query(`INSERT INTO "control financiero".cuentas_por_cobrar (matricula, concepto, id_ciclo, monto, pagado)
                VALUES 
                  ($1, 'UADEC',   $2, 4500.00, FALSE),
                  ($1, 'ESCUELA', $2, 2500.00, FALSE)

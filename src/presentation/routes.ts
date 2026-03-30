@@ -10,6 +10,7 @@ import ciclosRoutes from './ciclos-escolares/ciclos-escolares.routes';
 import conceptosRoutes from './conceptos/conceptos.routes';
 import usuariosRoutes from './usuarios/usuarios.routes';
 import observacionesRoutes from './obsercaciones/observaciones.routes';
+import tiposObservacionRoutes from './tipos-observacion/tipos-observacion.routes';
 import cuentasRoutes from './cuentas/cuentas.routes';
 import pagosRoutes from './pagos/pagos.routes';
 import bitacoraRoutes from './bitacora/bitacora.routes';
@@ -30,6 +31,7 @@ export class AppRoutes {
     // ======= USUARIOS / OBSERVACIONES =======
     app.register(usuariosRoutes, { prefix: '/api/usuarios' }); // Consider restricting this
     app.register(observacionesRoutes, { prefix: '/api/observaciones' });
+    app.register(tiposObservacionRoutes, { prefix: '/api/tipos-observacion' });
 
     // ======= FINANCIERO =======
     app.register(cuentasRoutes, { prefix: '/api/cuentas' });

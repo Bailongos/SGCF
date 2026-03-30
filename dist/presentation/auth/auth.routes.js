@@ -15,6 +15,19 @@ const authRoutes = async (fastify) => {
             });
         }
     });
+    // POST /register (Local)
+    fastify.post('/register', async (request, reply) => {
+        try {
+            const result = await auth_service_1.AuthService.registerUser(request.body);
+            return reply.code(201).send(result);
+        }
+        catch (err) {
+            fastify.log.error(err);
+            return reply.code(400).send({
+                message: err.message || 'Error al intentar registrar el usuario',
+            });
+        }
+    });
     // POST /google (OAuth)
     fastify.post('/google', async (request, reply) => {
         const { token } = request.body; // id_token

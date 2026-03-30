@@ -21,13 +21,13 @@ const adminRoutes = async (fastify) => {
             SELECT 
                 u.id_usuario, u.username, u.email, u.activo,
                 u.id_rol, r.nombre_rol,
-                u.id_carrera, c.nombre_carrera,
+                u.id_carrera, c.nombre as nombre_carrera, c.clave as clave_carrera,
                 COALESCE(json_agg(ui.proveedor) FILTER (WHERE ui.proveedor IS NOT NULL), '[]') as identidades
             FROM "control financiero".usuarios u
             JOIN "control financiero".roles r ON u.id_rol = r.id_rol
             LEFT JOIN "control financiero".carreras c ON u.id_carrera = c.id_carrera
             LEFT JOIN "control financiero".usuarios_identidades ui ON u.id_usuario = ui.id_usuario
-            GROUP BY u.id_usuario, r.nombre_rol, c.nombre_carrera
+            GROUP BY u.id_usuario, r.nombre_rol, c.nombre, c.clave
             ORDER BY u.id_usuario ASC
         `;
             const result = await data_1.dbPool.query(query);
@@ -140,7 +140,7 @@ const adminRoutes = async (fastify) => {
     });
     // GET /admin/carreras
     fastify.get('/carreras', async (request, reply) => {
-        const result = await data_1.dbPool.query('SELECT * FROM "control financiero".carreras ORDER BY nombre_carrera');
+        const result = await data_1.dbPool.query('SELECT * FROM "control financiero".carreras ORDER BY clave ASC');
         return result.rows;
     });
     // GET /admin/auditoria (Bitácora)

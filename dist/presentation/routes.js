@@ -13,6 +13,7 @@ const ciclos_escolares_routes_1 = __importDefault(require("./ciclos-escolares/ci
 const conceptos_routes_1 = __importDefault(require("./conceptos/conceptos.routes"));
 const usuarios_routes_1 = __importDefault(require("./usuarios/usuarios.routes"));
 const observaciones_routes_1 = __importDefault(require("./obsercaciones/observaciones.routes"));
+const tipos_observacion_routes_1 = __importDefault(require("./tipos-observacion/tipos-observacion.routes"));
 const cuentas_routes_1 = __importDefault(require("./cuentas/cuentas.routes"));
 const pagos_routes_1 = __importDefault(require("./pagos/pagos.routes"));
 const bitacora_routes_1 = __importDefault(require("./bitacora/bitacora.routes"));
@@ -31,6 +32,7 @@ class AppRoutes {
         // ======= USUARIOS / OBSERVACIONES =======
         app.register(usuarios_routes_1.default, { prefix: '/api/usuarios' }); // Consider restricting this
         app.register(observaciones_routes_1.default, { prefix: '/api/observaciones' });
+        app.register(tipos_observacion_routes_1.default, { prefix: '/api/tipos-observacion' });
         // ======= FINANCIERO =======
         app.register(cuentas_routes_1.default, { prefix: '/api/cuentas' });
         app.register(pagos_routes_1.default, { prefix: '/api/pagos' });
