@@ -4,7 +4,14 @@ import { AuthService } from './auth.service';
 const authRoutes: FastifyPluginAsync = async (fastify) => {
   
   // POST /login (Local)
-  fastify.post('/login', async (request, reply) => {
+  fastify.post('/login', {
+    config: {
+      rateLimit: {
+        max: 5,
+        timeWindow: '1 minute'
+      }
+    }
+  }, async (request, reply) => {
     try {
       const result = await AuthService.loginUser(request.body);
       return result;
@@ -17,7 +24,14 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /register (Local)
-  fastify.post('/register', async (request, reply) => {
+  fastify.post('/register', {
+    config: {
+      rateLimit: {
+        max: 3,
+        timeWindow: '1 minute'
+      }
+    }
+  }, async (request, reply) => {
     try {
       const result = await AuthService.registerUser(request.body);
       return reply.code(201).send(result);

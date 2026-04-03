@@ -1,6 +1,8 @@
 // server.ts
 import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
 import { AppRoutes } from './routes';
 import { dbPool } from '../data';
 import { authMiddleware } from './shared/auth.middleware';
@@ -26,6 +28,22 @@ export class Server {
       origin: true, // permite cualquier origen (en dev está bien)
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id', 'x-user-carrera'],
+    });
+
+    // Seguridad: Cabeceras HTTP (Helmet)
+    await this.app.register(helmet, {
+      contentSecurityPolicy: false, // Desactivar si el frontend consume la API directamente desde otro puerto
+    });
+
+    // Seguridad: Prevención de ataques de fuerza bruta (Rate Limit)
+    await this.app.register(rateLimit, {
+      max: 100,
+      timeWindow: '1 minute',
+      errorResponseBuilder: (request, context) => ({
+        statusCode: 429,
+        error: 'Too Many Requests',
+        message: `Demasiadas peticiones. Por favor, reintenta en ${context.after}.`
+      })
     });
     
     // Health
