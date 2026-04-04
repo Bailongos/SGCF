@@ -45,11 +45,13 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
 
   // POST /google (OAuth)
   fastify.post('/google', async (request, reply) => {
-    const { token } = request.body as any; // id_token
-    if (!token) return reply.code(400).send({ message: 'Token es requerido' });
+    const { token, id_token } = request.body as any;
+    const finalToken = token || id_token;
+    
+    if (!finalToken) return reply.code(400).send({ message: 'Token es requerido' });
 
     try {
-      const result = await AuthService.loginGoogle(token);
+      const result = await AuthService.loginGoogle(finalToken);
       return result;
     } catch (err: any) {
       fastify.log.error(err);
@@ -62,11 +64,13 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
 
   // POST /microsoft (OAuth)
   fastify.post('/microsoft', async (request, reply) => {
-    const { token } = request.body as any; // id_token
-    if (!token) return reply.code(400).send({ message: 'Token es requerido' });
+    const { token, id_token } = request.body as any;
+    const finalToken = token || id_token;
+
+    if (!finalToken) return reply.code(400).send({ message: 'Token es requerido' });
 
     try {
-      const result = await AuthService.loginMicrosoft(token);
+      const result = await AuthService.loginMicrosoft(finalToken);
       return result;
     } catch (err: any) {
       fastify.log.error(err);

@@ -112,6 +112,13 @@ export class AuthService {
   // Google Login
   static async loginGoogle(idToken: string) {
     try {
+      if (!envs.GOOGLE_CLIENT_ID) {
+        console.error('[AuthService] Error: GOOGLE_CLIENT_ID NOT DEFINED in backend environment.');
+        throw new Error('Configuración de Google incompleta en el servidor');
+      }
+
+      console.log(`[AuthService] Verifying Google token with Client ID: ${envs.GOOGLE_CLIENT_ID.substring(0, 10)}...`);
+
       const ticket = await googleClient.verifyIdToken({
         idToken,
         audience: envs.GOOGLE_CLIENT_ID,
@@ -172,6 +179,14 @@ export class AuthService {
     foto_url?: string | null
   }) {
     
+    // Domain validation for Microsoft
+    if (data.proveedor === 'MICROSOFT' && data.email) {
+      const email = data.email.toLowerCase();
+      if (!email.endsWith('@uadec.mx') && !email.endsWith('@mail.uadec.mx')) {
+        throw new Error('Solo se permiten cuentas institucionales de la UADEC (@uadec.mx).');
+      }
+    }
+
     const identityRes = await dbPool.query(
         `SELECT ui.*, u.id_rol, u.id_carrera, u.username, u.activo, r.nombre_rol
          FROM "control financiero".usuarios_identidades ui
@@ -184,33 +199,54 @@ export class AuthService {
     let user = identityRes.rows[0];
 
     if (user) {
-        if (!user.activo) throw new Error('Usuario pendiente de activación. Contacte al administrador.');
+        // Automatically activate if not active (User choice: "deje iniciar sesion")
+        if (!user.activo) {
+            await dbPool.query(
+                'UPDATE "control financiero".usuarios SET activo = true WHERE id_usuario = $1',
+                [user.id_usuario]
+            );
+            user.activo = true;
+        }
     } else {
         const client = await dbPool.connect();
         try {
             await client.query('BEGIN');
             
-            // Find role ID (Pendiente or Sin Rol)
+            // 1. Find role ID
+            // Default to 'Pendiente' (ID 4) if id_carrera is NULL to satisfy trigger
             const roleRes = await client.query(
                 `SELECT id_rol FROM "control financiero".roles 
                  WHERE nombre_rol ILIKE '%Pendiente%' 
-                    OR nombre_rol ILIKE '%Sin Rol%' 
-                    OR nombre_rol ILIKE '%SinRol%'
                  LIMIT 1`
             );
-            let roleId = roleRes.rows[0]?.id_rol || 6; 
+            let roleId = roleRes.rows[0]?.id_rol || 4; 
 
-            // Fallback directo a ID 7 para carrera (Evitar error si falta columna nombre_carrera)
-            const defaultCarreraId = 7; 
+            // 2. Default Career ID
+            // Check if any career exists, otherwise use NULL
+            const careerRes = await client.query('SELECT id_carrera FROM "control financiero".carreras LIMIT 1');
+            const defaultCarreraId = careerRes.rows[0]?.id_carrera || null;
 
+            // If we have a career, we can use 'Coordinador' (ID 2)
+            if (defaultCarreraId) {
+                const coordRoleRes = await client.query(
+                    `SELECT id_rol FROM "control financiero".roles 
+                     WHERE nombre_rol ILIKE '%Coordinador%' 
+                     LIMIT 1`
+                );
+                roleId = coordRoleRes.rows[0]?.id_rol || roleId;
+            }
+
+            // 3. Create user (activo = true per user request)
+            const username = data.email || `${data.proveedor}_${data.proveedor_sub}`;
             const insertUserRes = await client.query(
                 `INSERT INTO "control financiero".usuarios (username, password, email, id_rol, id_carrera, activo)
                  VALUES ($1, $2, $3, $4, $5, $6)
                  RETURNING id_usuario`,
-                [data.email || `${data.proveedor}_${data.proveedor_sub}`, 'oauth_placeholder', data.email, roleId, defaultCarreraId, false]
+                [username, 'oauth_placeholder', data.email, roleId, defaultCarreraId, true]
             );
             const userId = insertUserRes.rows[0].id_usuario;
 
+            // 4. Create identity
             await client.query(
                 `INSERT INTO "control financiero".usuarios_identidades 
                  (id_usuario, proveedor, proveedor_sub, email, email_verificado, nombre, foto_url)
@@ -218,8 +254,24 @@ export class AuthService {
                 [userId, data.proveedor, data.proveedor_sub, data.email, data.email_verificado, data.nombre, data.foto_url]
             );
 
+            // 5. Log activity
+            await client.query(
+                `INSERT INTO "control financiero".bitacora_auditoria (id_usuario, accion, detalle)
+                 VALUES ($1, $2, $3)`,
+                [userId, 'LOGIN_OAUTH_REGISTER', `Usuario registrado y activado vía ${data.proveedor}`]
+            );
+
             await client.query('COMMIT');
-            throw new Error('Registro exitoso. Su cuenta está pendiente de aprobación por un administrador.');
+            
+            // Re-fetch to get role name and other details for token
+            const freshUserRes = await dbPool.query(
+                `SELECT u.id_usuario, u.username, u.id_rol, u.id_carrera, r.nombre_rol
+                 FROM "control financiero".usuarios u
+                 JOIN "control financiero".roles r ON u.id_rol = r.id_rol
+                 WHERE u.id_usuario = $1`,
+                [userId]
+            );
+            user = freshUserRes.rows[0];
 
         } catch (e) {
             await client.query('ROLLBACK');
