@@ -82,21 +82,25 @@ export class AuthService {
     );
     if (existing.rows.length > 0) throw new Error('El nombre de usuario o email ya está registrado');
 
-        // 2. Get 'Pendiente' or 'Sin Rol' role ID - Fallback a ID 2 (Coordinador) para evitar errores de restricción
+        // 2. Get role and career dynamically
         let roleRes = await dbPool.query(
             `SELECT id_rol FROM "control financiero".roles 
              WHERE nombre_rol ILIKE '%Pendiente%' 
-                OR nombre_rol ILIKE '%Sin Rol%' 
-                OR nombre_rol ILIKE '%SinRol%'
              LIMIT 1`
         );
-        
-        // Si no encuentra el rol por nombre, usamos el ID 2 (Coordinador) que es un rol estándar aceptado
-        let roleId = roleRes.rows[0]?.id_rol || 2; 
-    
-        // 3. Fallback directo a ID 7 para carrera (Evitar error si falta columna nombre_carrera)
-        const defaultCarreraId = 7; 
-     
+        let roleId = roleRes.rows[0]?.id_rol || 4;
+
+        // 3. Check if any career exists, otherwise use NULL
+        const careerRes = await dbPool.query('SELECT id_carrera FROM "control financiero".carreras LIMIT 1');
+        const defaultCarreraId = careerRes.rows[0]?.id_carrera || null;
+
+        // If we have a career, we can use Coordinador role instead
+        if (defaultCarreraId) {
+            const coordRes = await dbPool.query(
+                `SELECT id_rol FROM "control financiero".roles WHERE nombre_rol ILIKE '%Coordinador%' LIMIT 1`
+            );
+            roleId = coordRes.rows[0]?.id_rol || roleId;
+        }
 
     const passwordHash = bcrypt.hashSync(password, 10);
 
