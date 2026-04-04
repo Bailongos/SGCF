@@ -139,9 +139,11 @@ export class AuthService {
         foto_url: payload.picture
       });
 
-    } catch (error) {
-        console.error('Google Auth Error:', error);
-        throw new Error('Google Token inválido');
+    } catch (error: any) {
+        const detail = error?.message || String(error);
+        console.error('[AuthService] Google Auth Error Detail:', detail);
+        console.error('[AuthService] Full error:', error);
+        throw new Error(`Google Auth falló: ${detail}`);
     }
   }
 
