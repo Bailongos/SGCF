@@ -7,15 +7,17 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
   // Global Admin Guard
   fastify.addHook('preHandler', async (request, reply) => {
     const user = (request as any).user;
-    if (!user || user.id_carrera !== null) { // Assuming NULL id_carrera means Global Admin
-       // Also check role name if needed, but id_carrera IS NULL is the key rule
-       return reply.code(403).send({ message: 'Acceso denegado: Se requieren permisos de Administrador Global.' });
+    if (!user) {
+       return reply.code(401).send({ message: 'No autenticado.' });
     }
+    // Note: We used to block id_carrera !== null here. 
+    // Now we allow them but filter data in each handler.
   });
 
   // GET /admin/usuarios - List users with details
   fastify.get('/usuarios', async (request, reply) => {
     try {
+        const idCarrera = (request as any).user.id_carrera;
         const query = `
             SELECT 
                 u.id_usuario, u.username, u.email, u.activo,
@@ -26,10 +28,11 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
             JOIN "control financiero".roles r ON u.id_rol = r.id_rol
             LEFT JOIN "control financiero".carreras c ON u.id_carrera = c.id_carrera
             LEFT JOIN "control financiero".usuarios_identidades ui ON u.id_usuario = ui.id_usuario
+            ${idCarrera !== null ? 'WHERE u.id_carrera = $1' : ''}
             GROUP BY u.id_usuario, r.nombre_rol, c.nombre, c.clave
             ORDER BY u.id_usuario ASC
         `;
-        const result = await dbPool.query(query);
+        const result = await dbPool.query(query, idCarrera !== null ? [idCarrera] : []);
         return result.rows;
     } catch (err: any) {
         fastify.log.error(err);
@@ -55,11 +58,19 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
               passwordHash = bcrypt.hashSync(password, 10);
           }
 
+          const currentUser = (request as any).user;
+          let targetCarrera = id_carrera;
+
+          // Si el admin es local, forzar que el usuario creado sea de su carrera
+          if (currentUser.id_carrera !== null) {
+              targetCarrera = currentUser.id_carrera;
+          }
+
           const res = await client.query(
               `INSERT INTO "control financiero".usuarios (username, password, email, id_rol, id_carrera, activo)
                VALUES ($1, $2, $3, $4, $5, $6)
                RETURNING id_usuario`,
-              [username, passwordHash, email, id_rol, id_carrera, true] // Activo por defecto si lo crea el admin
+              [username, passwordHash, email, id_rol, targetCarrera, true] 
           );
           
           await client.query('COMMIT');
@@ -86,22 +97,32 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
           return reply.code(400).send({ message: 'No hay datos para actualizar' });
       }
 
+      const currentUser = (request as any).user;
       const client = await dbPool.connect();
       try {
           await client.query('BEGIN');
+
+          // Si el admin es local, verificar que el usuario a editar pertenezca a su carrera
+          if (currentUser.id_carrera !== null) {
+              const checkUser = await client.query(
+                  'SELECT id_carrera FROM "control financiero".usuarios WHERE id_usuario = $1',
+                  [id]
+              );
+              if (checkUser.rows.length === 0 || checkUser.rows[0].id_carrera !== currentUser.id_carrera) {
+                  await client.query('ROLLBACK');
+                  return reply.code(403).send({ message: 'No tiene permiso para editar usuarios de otra carrera.' });
+              }
+          }
 
           // Validate Role constraints
           if (id_rol) {
               const roleRes = await client.query('SELECT nombre_rol FROM "control financiero".roles WHERE id_rol = $1', [id_rol]);
               const roleName = roleRes.rows[0]?.nombre_rol;
               
-              if (roleName === 'Administrador' && id_carrera !== null && id_carrera !== undefined) {
-                   // If setting to admin, id_carrera must be null. 
-                   // But if id_carrera is not in body, we check existing? 
-                   // Simplification: Admin must be global.
-                   // If user sends id_carrera, ensure it is null.
+              if (roleName === 'Administrador' && currentUser.id_carrera !== null) {
+                  await client.query('ROLLBACK');
+                  return reply.code(403).send({ message: 'Un administrador local no puede asignar el rol de Administrador Global.' });
               }
-              // Similar check for Coordinador
           }
           
           const fields: string[] = [];
@@ -109,7 +130,10 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
           let idx = 1;
 
           if (id_rol !== undefined) { fields.push(`id_rol = $${idx++}`); values.push(id_rol); }
-          if (id_carrera !== undefined) { fields.push(`id_carrera = $${idx++}`); values.push(id_carrera); }
+          // Si es admin local, no puede cambiar la carrera (se mantiene la suya)
+          if (id_carrera !== undefined && currentUser.id_carrera === null) { 
+              fields.push(`id_carrera = $${idx++}`); values.push(id_carrera); 
+          }
           if (activo !== undefined) { fields.push(`activo = $${idx++}`); values.push(activo); }
           if (password !== undefined) { 
               const hash = bcrypt.hashSync(password, 10);
@@ -124,11 +148,10 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
               );
 
               // Log action in audit log
-              const adminUser = (request as any).user;
               await client.query(
                   `INSERT INTO "control financiero".bitacora_auditoria (id_usuario, accion, detalle)
                    VALUES ($1, $2, $3)`,
-                  [adminUser.id, 'UPDATE_USER', `Admin actualizó usuario ID ${id}. Campos: ${Object.keys(request.body as any).join(', ')}`]
+                  [currentUser.id, 'UPDATE_USER', `Admin actualizó usuario ID ${id}. Campos: ${Object.keys(request.body as any).join(', ')}`]
               );
           }
 
@@ -152,7 +175,11 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
 
   // GET /admin/carreras
   fastify.get('/carreras', async (request, reply) => {
-      const result = await dbPool.query('SELECT * FROM "control financiero".carreras ORDER BY clave ASC');
+      const idCarrera = (request as any).user.id_carrera;
+      const query = `SELECT * FROM "control financiero".carreras 
+                     ${idCarrera !== null ? 'WHERE id_carrera = $1' : ''} 
+                     ORDER BY clave ASC`;
+      const result = await dbPool.query(query, idCarrera !== null ? [idCarrera] : []);
       return result.rows;
   });
 
