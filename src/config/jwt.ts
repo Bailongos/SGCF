@@ -2,10 +2,10 @@ import jwt from 'jsonwebtoken';
 import { envs } from './envs';
 
 export class JwtAdapter {
-  static async generateToken(payload: any, duration: string = '2h') {
+  static async generateToken(payload: any, duration: string = '2h'): Promise<string | null> {
     return new Promise((resolve) => {
       jwt.sign(payload, envs.JWT_SECRET, { expiresIn: duration as any }, (err, token) => {
-        if (err) return resolve(null);
+        if (err || typeof token !== 'string') return resolve(null);
         resolve(token);
       });
     });

@@ -26,12 +26,51 @@ function getKey(header: any, callback: any) {
 
 export class AuthService {
 
+  private static async getUserPermissions(idRol: number, idUsuario: number) {
+    const permissionsRes = await dbPool.query(
+      `SELECT DISTINCT p.clave
+       FROM "control financiero".permisos p
+       JOIN "control financiero".rol_permisos rp ON p.id_permiso = rp.id_permiso
+       WHERE rp.id_rol = $1
+       UNION
+       SELECT p.clave
+       FROM "control financiero".permisos p
+       JOIN "control financiero".usuario_permisos up ON p.id_permiso = up.id_permiso
+       WHERE up.id_usuario = $2 AND up.otorgado = true
+       EXCEPT
+       SELECT p.clave
+       FROM "control financiero".permisos p
+       JOIN "control financiero".usuario_permisos up ON p.id_permiso = up.id_permiso
+       WHERE up.id_usuario = $2 AND up.otorgado = false`,
+      [idRol, idUsuario]
+    );
+
+    return permissionsRes.rows.map((row: any) => row.clave);
+  }
+
+  private static formatAuthResponse(user: any, token: string, permissions: string[]) {
+    return {
+      user: {
+        id: user.id_usuario,
+        id_usuario: user.id_usuario,
+        username: user.username,
+        email: user.email ?? null,
+        id_rol: user.id_rol,
+        id_carrera: user.id_carrera,
+        role: user.nombre_rol,
+        activo: user.activo,
+        permissions
+      },
+      token
+    };
+  }
+
   // Local Login
   static async loginUser(loginUserDto: any) {
     const { username, password } = loginUserDto;
 
     const userRes = await dbPool.query(
-      `SELECT u.id_usuario, u.username, u.password, u.id_rol, u.id_carrera, r.nombre_rol, u.activo
+      `SELECT u.id_usuario, u.username, u.password, u.email, u.id_rol, u.id_carrera, r.nombre_rol, u.activo
        FROM "control financiero".usuarios u
        JOIN "control financiero".roles r ON u.id_rol = r.id_rol
        WHERE u.username = $1`,
@@ -59,15 +98,11 @@ export class AuthService {
       role: user.nombre_rol
     });
 
-    return {
-      user: {
-        id: user.id_usuario,
-        username: user.username,
-        id_carrera: user.id_carrera,
-        role: user.nombre_rol
-      },
-      token
-    };
+    if (!token) throw new Error('No se pudo generar el token de sesión');
+
+    const permissions = await this.getUserPermissions(user.id_rol, user.id_usuario);
+
+    return this.formatAuthResponse(user, token, permissions);
   }
 
   // Local Register
@@ -271,7 +306,7 @@ export class AuthService {
             
             // Re-fetch to get role name and other details for token
             const freshUserRes = await dbPool.query(
-                `SELECT u.id_usuario, u.username, u.id_rol, u.id_carrera, r.nombre_rol
+                `SELECT u.id_usuario, u.username, u.email, u.id_rol, u.id_carrera, r.nombre_rol
                  FROM "control financiero".usuarios u
                  JOIN "control financiero".roles r ON u.id_rol = r.id_rol
                  WHERE u.id_usuario = $1`,
@@ -293,14 +328,10 @@ export class AuthService {
       role: user.nombre_rol
     });
 
-    return {
-      user: {
-        id: user.id_usuario,
-        username: user.username,
-        id_carrera: user.id_carrera,
-        role: user.nombre_rol
-      },
-      token
-    };
+    if (!token) throw new Error('No se pudo generar el token de sesión');
+
+    const permissions = await this.getUserPermissions(user.id_rol, user.id_usuario);
+
+    return this.formatAuthResponse(user, token, permissions);
   }
 }
