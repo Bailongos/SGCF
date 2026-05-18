@@ -50,10 +50,9 @@
     "outDir": "./dist",
     "strict": true,
     "esModuleInterop": true,
-    "moduleResolution": "node",
+    "moduleResolution": "node16",
     "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "ignoreDeprecations": "5.0"
+    "skipLibCheck": true
   },
   "include": ["src"]
 }
