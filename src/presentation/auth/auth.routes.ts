@@ -10,6 +10,17 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
         max: 5,
         timeWindow: '1 minute'
       }
+    },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['username', 'password'],
+        properties: {
+          username: { type: 'string', minLength: 3 },
+          password: { type: 'string', minLength: 6 }
+        },
+        additionalProperties: false
+      }
     }
   }, async (request, reply) => {
     try {
@@ -30,6 +41,18 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
         max: 3,
         timeWindow: '1 minute'
       }
+    },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['username', 'password', 'email'],
+        properties: {
+          username: { type: 'string', minLength: 3 },
+          password: { type: 'string', minLength: 6 },
+          email: { type: 'string', format: 'email' }
+        },
+        additionalProperties: false
+      }
     }
   }, async (request, reply) => {
     try {
@@ -44,7 +67,22 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /google (OAuth)
-  fastify.post('/google', async (request, reply) => {
+  fastify.post('/google', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          token: { type: 'string' },
+          id_token: { type: 'string' }
+        },
+        anyOf: [
+          { required: ['token'] },
+          { required: ['id_token'] }
+        ],
+        additionalProperties: false
+      }
+    }
+  }, async (request, reply) => {
     const { token, id_token } = request.body as any;
     const finalToken = token || id_token;
     
@@ -63,7 +101,22 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /microsoft (OAuth)
-  fastify.post('/microsoft', async (request, reply) => {
+  fastify.post('/microsoft', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          token: { type: 'string' },
+          id_token: { type: 'string' }
+        },
+        anyOf: [
+          { required: ['token'] },
+          { required: ['id_token'] }
+        ],
+        additionalProperties: false
+      }
+    }
+  }, async (request, reply) => {
     const { token, id_token } = request.body as any;
     const finalToken = token || id_token;
 

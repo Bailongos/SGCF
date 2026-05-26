@@ -184,31 +184,44 @@ export class AuthService {
 
   // Microsoft Login
   static async loginMicrosoft(idToken: string) {
+    let decoded: any = null;
     try {
-        const decoded = await new Promise((resolve, reject) => {
+        decoded = await new Promise((resolve, reject) => {
             jwt.verify(idToken, getKey, {
                 audience: envs.MICROSOFT_CLIENT_ID,
                 issuer: [`https://login.microsoftonline.com/${envs.MICROSOFT_TENANT_ID}/v2.0`, `https://sts.windows.net/${envs.MICROSOFT_TENANT_ID}/`], 
                 algorithms: ['RS256']
-            }, (err, decoded) => {
+            }, (err, decodedToken) => {
                 if (err) reject(err);
-                else resolve(decoded);
+                else resolve(decodedToken);
             });
         }) as any;
-
-        return this.loginOrRegisterProvider({
-            proveedor: 'MICROSOFT',
-            proveedor_sub: decoded.sub || decoded.oid,
-            email: decoded.email || decoded.preferred_username,
-            email_verificado: true, 
-            nombre: decoded.name,
-            foto_url: null 
-        });
-
-    } catch (error) {
-        console.error('Microsoft Auth Error:', error);
-        throw new Error('Microsoft Token inválido');
+    } catch (error: any) {
+        console.error('Microsoft Token Verification Error:', error);
+        try {
+            const fs = require('fs');
+            const path = require('path');
+            const logPath = path.join(process.cwd(), 'debug_auth.log');
+            const logContent = `[${new Date().toISOString()}] Microsoft Token Verification Error:
+Message: ${error?.message}
+Stack: ${error?.stack}
+Token prefix: ${idToken ? idToken.substring(0, 20) : 'none'}...
+`;
+            fs.appendFileSync(logPath, logContent);
+        } catch (fsErr) {
+            console.error('Failed to write debug log:', fsErr);
+        }
+        throw new Error(`Token de Microsoft inválido o vencido: ${error?.message || String(error)}`);
     }
+
+    return await this.loginOrRegisterProvider({
+        proveedor: 'MICROSOFT',
+        proveedor_sub: decoded.sub || decoded.oid,
+        email: decoded.email || decoded.preferred_username,
+        email_verificado: true, 
+        nombre: decoded.name,
+        foto_url: null 
+    });
   }
 
   private static async loginOrRegisterProvider(data: {
@@ -222,9 +235,11 @@ export class AuthService {
     
     // Domain validation for Microsoft
     if (data.proveedor === 'MICROSOFT' && data.email) {
-      const email = data.email.toLowerCase();
-      if (!email.endsWith('@uadec.mx') && !email.endsWith('@mail.uadec.mx')) {
-        throw new Error('Solo se permiten cuentas institucionales de la UADEC (@uadec.mx).');
+      const email = data.email.toLowerCase().trim();
+      const allowedDomains = ['@uadec.mx', '@mail.uadec.mx', '@uadec.edu.mx', '@mail.uadec.edu.mx'];
+      const isValidDomain = allowedDomains.some(domain => email.endsWith(domain));
+      if (!isValidDomain) {
+        throw new Error(`Solo se permiten cuentas institucionales de la UADEC. El correo detectado es: ${data.email}`);
       }
     }
 
@@ -240,79 +255,93 @@ export class AuthService {
     let user = identityRes.rows[0];
 
     if (user) {
-        // Automatically activate if not active (User choice: "deje iniciar sesion")
+        // Si el usuario existe pero está inactivo, bloquear el acceso
         if (!user.activo) {
-            await dbPool.query(
-                'UPDATE "control financiero".usuarios SET activo = true WHERE id_usuario = $1',
-                [user.id_usuario]
-            );
-            user.activo = true;
+            throw new Error('Tu cuenta aún no ha sido activada. Contacta al administrador para que te asigne un rol y carrera.');
         }
     } else {
         const client = await dbPool.connect();
         try {
             await client.query('BEGIN');
-            
-            // 1. Find role ID
-            // Default to 'Pendiente' (ID 4) if id_carrera is NULL to satisfy trigger
-            const roleRes = await client.query(
-                `SELECT id_rol FROM "control financiero".roles 
-                 WHERE nombre_rol ILIKE '%Pendiente%' 
-                 LIMIT 1`
-            );
-            let roleId = roleRes.rows[0]?.id_rol || 4; 
 
-            // 2. Default Career ID
-            // Check if any career exists, otherwise use NULL
-            const careerRes = await client.query('SELECT id_carrera FROM "control financiero".carreras LIMIT 1');
-            const defaultCarreraId = careerRes.rows[0]?.id_carrera || null;
-
-            // If we have a career, we can use 'Coordinador' (ID 2)
-            if (defaultCarreraId) {
-                const coordRoleRes = await client.query(
-                    `SELECT id_rol FROM "control financiero".roles 
-                     WHERE nombre_rol ILIKE '%Coordinador%' 
-                     LIMIT 1`
+            // Check if user with this email already exists in usuarios table
+            let existingUser = null;
+            if (data.email) {
+                const existingUserRes = await client.query(
+                    `SELECT u.id_usuario, u.username, u.email, u.id_rol, u.id_carrera, u.activo, r.nombre_rol
+                     FROM "control financiero".usuarios u
+                     JOIN "control financiero".roles r ON u.id_rol = r.id_rol
+                     WHERE u.email = $1`,
+                    [data.email]
                 );
-                roleId = coordRoleRes.rows[0]?.id_rol || roleId;
+                if (existingUserRes.rows.length > 0) {
+                    existingUser = existingUserRes.rows[0];
+                }
             }
 
-            // 3. Create user (activo = true per user request)
-            const username = data.email || `${data.proveedor}_${data.proveedor_sub}`;
-            const insertUserRes = await client.query(
-                `INSERT INTO "control financiero".usuarios (username, password, email, id_rol, id_carrera, activo)
-                 VALUES ($1, $2, $3, $4, $5, $6)
-                 RETURNING id_usuario`,
-                [username, 'oauth_placeholder', data.email, roleId, defaultCarreraId, true]
-            );
-            const userId = insertUserRes.rows[0].id_usuario;
+            if (existingUser) {
+                // Si el usuario existe pero está inactivo, bloquear el acceso
+                if (!existingUser.activo) {
+                    throw new Error('Tu cuenta aún no ha sido activada. Contacta al administrador para que te asigne un rol y carrera.');
+                }
 
-            // 4. Create identity
-            await client.query(
-                `INSERT INTO "control financiero".usuarios_identidades 
-                 (id_usuario, proveedor, proveedor_sub, email, email_verificado, nombre, foto_url)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-                [userId, data.proveedor, data.proveedor_sub, data.email, data.email_verificado, data.nombre, data.foto_url]
-            );
+                // Registrar identidad OAuth asociada al usuario existente
+                await client.query(
+                    `INSERT INTO "control financiero".usuarios_identidades 
+                     (id_usuario, proveedor, proveedor_sub, email, email_verificado, nombre, foto_url)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                    [existingUser.id_usuario, data.proveedor, data.proveedor_sub, data.email, data.email_verificado, data.nombre, data.foto_url]
+                );
 
-            // 5. Log activity
-            await client.query(
-                `INSERT INTO "control financiero".bitacora_auditoria (id_usuario, accion, detalle)
-                 VALUES ($1, $2, $3)`,
-                [userId, 'LOGIN_OAUTH_REGISTER', `Usuario registrado y activado vía ${data.proveedor}`]
-            );
+                // Registrar en bitácora
+                await client.query(
+                    `INSERT INTO "control financiero".bitacora_auditoria (id_usuario, accion, detalle)
+                     VALUES ($1, $2, $3)`,
+                    [existingUser.id_usuario, 'OAUTH_IDENTITY_LINKED', `Identidad OAuth vinculada al usuario existente (${data.proveedor}).`]
+                );
 
-            await client.query('COMMIT');
-            
-            // Re-fetch to get role name and other details for token
-            const freshUserRes = await dbPool.query(
-                `SELECT u.id_usuario, u.username, u.email, u.id_rol, u.id_carrera, r.nombre_rol
-                 FROM "control financiero".usuarios u
-                 JOIN "control financiero".roles r ON u.id_rol = r.id_rol
-                 WHERE u.id_usuario = $1`,
-                [userId]
-            );
-            user = freshUserRes.rows[0];
+                await client.query('COMMIT');
+                user = existingUser;
+            } else {
+                // 1. Obtener rol 'Pendiente' — sin carrera para no violar el trigger de scope
+                const roleRes = await client.query(
+                    `SELECT id_rol FROM "control financiero".roles 
+                     WHERE nombre_rol ILIKE '%Pendiente%' 
+                     LIMIT 1`
+                );
+                const roleId = roleRes.rows[0]?.id_rol || 4;
+
+                // 2. Crear usuario INACTIVO con rol Pendiente y sin carrera
+                //    El administrador deberá activarlo y asignarle rol/carrera manualmente
+                const username = data.email || `${data.proveedor}_${data.proveedor_sub}`;
+                const insertUserRes = await client.query(
+                    `INSERT INTO "control financiero".usuarios (username, password, email, id_rol, id_carrera, activo)
+                     VALUES ($1, $2, $3, $4, $5, $6)
+                     RETURNING id_usuario`,
+                    [username, 'oauth_placeholder', data.email, roleId, null, false]
+                );
+                const userId = insertUserRes.rows[0].id_usuario;
+
+                // 3. Registrar identidad OAuth
+                await client.query(
+                    `INSERT INTO "control financiero".usuarios_identidades 
+                     (id_usuario, proveedor, proveedor_sub, email, email_verificado, nombre, foto_url)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                    [userId, data.proveedor, data.proveedor_sub, data.email, data.email_verificado, data.nombre, data.foto_url]
+                );
+
+                // 4. Registrar en bitácora
+                await client.query(
+                    `INSERT INTO "control financiero".bitacora_auditoria (id_usuario, accion, detalle)
+                     VALUES ($1, $2, $3)`,
+                    [userId, 'OAUTH_REGISTER_PENDING', `Nuevo usuario registrado vía ${data.proveedor}. Pendiente de activación por administrador.`]
+                );
+
+                await client.query('COMMIT');
+
+                // Lanzar error claro para que el frontend muestre mensaje de espera
+                throw new Error('Tu cuenta ha sido creada exitosamente. Contacta al administrador para que te asigne un rol y carrera antes de poder acceder.');
+            }
 
         } catch (e) {
             await client.query('ROLLBACK');
