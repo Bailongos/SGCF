@@ -72,6 +72,22 @@ const alumnosRoutes: FastifyPluginAsync = async (fastify) => {
   // ======================================================
   fastify.post(
     '/',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['matricula', 'nombre', 'paterno', 'id_carrera'],
+          properties: {
+            matricula: { type: 'string' },
+            nombre: { type: 'string' },
+            paterno: { type: 'string' },
+            materno: { type: 'string' },
+            id_carrera: { type: 'integer' },
+            activo: { type: 'boolean' }
+          }
+        }
+      }
+    },
     async (request, reply) => {
       try {
         const body = request.body as Record<string, unknown>;
@@ -137,6 +153,27 @@ const alumnosRoutes: FastifyPluginAsync = async (fastify) => {
   // ======================================================
   fastify.put<{ Params: IdParams }>(
     '/:matricula',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['matricula'],
+          properties: {
+            matricula: { type: 'string' }
+          }
+        },
+        body: {
+          type: 'object',
+          properties: {
+            nombre: { type: 'string' },
+            paterno: { type: 'string' },
+            materno: { type: 'string' },
+            id_carrera: { type: 'integer' },
+            activo: { type: 'boolean' }
+          }
+        }
+      }
+    },
     async (request, reply) => {
       try {
         const matricula = request.params.matricula;
