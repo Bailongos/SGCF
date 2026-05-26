@@ -15,7 +15,14 @@ const ciclosRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(baseCrudRoutes);
 
   // POST /api/ciclos-escolares/auto
-  fastify.post('/auto', async (request, reply) => {
+  fastify.post('/auto', {
+    schema: {
+      body: {
+        type: 'object',
+        additionalProperties: false // Forbid any body parameters
+      }
+    }
+  }, async (request, reply) => {
     try {
       const now = new Date();
       const year = now.getFullYear();

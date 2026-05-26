@@ -71,7 +71,21 @@ const observacionesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /api/observaciones
-  fastify.post('/', async (request, reply) => {
+  fastify.post('/', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['matricula', 'detalle', 'tipo_clave'],
+        properties: {
+          matricula: { type: 'string' },
+          detalle: { type: 'string' },
+          tipo_clave: { type: 'string' },
+          id_autor: { type: 'integer', nullable: true }
+        },
+        additionalProperties: false
+      }
+    }
+  }, async (request, reply) => {
     const user = (request as any).user;
     const { matricula, detalle, tipo_clave, id_autor } = request.body as any;
 
