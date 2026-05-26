@@ -10,8 +10,12 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     if (!user) {
        return reply.code(401).send({ message: 'No autenticado.' });
     }
-    // Note: We used to block id_carrera !== null here. 
-    // Now we allow them but filter data in each handler.
+
+    // Validar roles permitidos para las rutas de administración
+    const allowedRoles = ['Administrador', 'Coordinador'];
+    if (!allowedRoles.includes(user.role)) {
+       return reply.code(403).send({ message: 'No tienes los permisos necesarios para acceder a las rutas de administración.' });
+    }
   });
 
   // GET /admin/usuarios - List users with details
@@ -28,7 +32,7 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
             JOIN "control financiero".roles r ON u.id_rol = r.id_rol
             LEFT JOIN "control financiero".carreras c ON u.id_carrera = c.id_carrera
             LEFT JOIN "control financiero".usuarios_identidades ui ON u.id_usuario = ui.id_usuario
-            ${idCarrera !== null ? 'WHERE u.id_carrera = $1' : ''}
+            ${idCarrera !== null ? 'WHERE u.id_carrera = $1 OR u.id_carrera IS NULL' : ''}
             GROUP BY u.id_usuario, r.nombre_rol, c.nombre, c.clave
             ORDER BY u.id_usuario ASC
         `;
@@ -41,7 +45,22 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /admin/usuarios - Create user (Local)
-  fastify.post('/usuarios', async (request, reply) => {
+  fastify.post('/usuarios', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['username', 'id_rol'],
+        properties: {
+          username: { type: 'string', minLength: 3 },
+          password: { type: 'string', minLength: 6 },
+          email: { type: 'string', format: 'email' },
+          id_rol: { type: 'integer' },
+          id_carrera: { type: 'integer', nullable: true }
+        },
+        additionalProperties: false
+      }
+    }
+  }, async (request, reply) => {
       const { username, password, email, id_rol, id_carrera } = request.body as any;
 
       if (!username || !id_rol) {
@@ -89,7 +108,28 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // PATCH /admin/usuarios/:id - Update user (Role, Carrera, Active, Password)
-  fastify.patch('/usuarios/:id', async (request, reply) => {
+  fastify.patch('/usuarios/:id', {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'integer' }
+        }
+      },
+      body: {
+        type: 'object',
+        properties: {
+          id_rol: { type: 'integer' },
+          id_carrera: { type: 'integer', nullable: true },
+          activo: { type: 'boolean' },
+          password: { type: 'string', minLength: 6 }
+        },
+        additionalProperties: false,
+        minProperties: 1
+      }
+    }
+  }, async (request, reply) => {
       const { id } = request.params as any;
       const { id_rol, id_carrera, activo, password } = request.body as any;
 
@@ -102,16 +142,19 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
       try {
           await client.query('BEGIN');
 
-          // Si el admin es local, verificar que el usuario a editar pertenezca a su carrera
+          // Si el admin es local, verificar que el usuario a editar pertenezca a su carrera o sea pendiente
+          let userCurrentCarrera = null;
           if (currentUser.id_carrera !== null) {
               const checkUser = await client.query(
                   'SELECT id_carrera FROM "control financiero".usuarios WHERE id_usuario = $1',
                   [id]
               );
-              if (checkUser.rows.length === 0 || checkUser.rows[0].id_carrera !== currentUser.id_carrera) {
+              if (checkUser.rows.length === 0 || 
+                  (checkUser.rows[0].id_carrera !== null && checkUser.rows[0].id_carrera !== currentUser.id_carrera)) {
                   await client.query('ROLLBACK');
                   return reply.code(403).send({ message: 'No tiene permiso para editar usuarios de otra carrera.' });
               }
+              userCurrentCarrera = checkUser.rows[0].id_carrera;
           }
 
           // Validate Role constraints
@@ -130,10 +173,24 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
           let idx = 1;
 
           if (id_rol !== undefined) { fields.push(`id_rol = $${idx++}`); values.push(id_rol); }
-          // Si es admin local, no puede cambiar la carrera (se mantiene la suya)
-          if (id_carrera !== undefined && currentUser.id_carrera === null) { 
-              fields.push(`id_carrera = $${idx++}`); values.push(id_carrera); 
+          
+          if (id_carrera !== undefined) {
+              if (currentUser.id_carrera === null) {
+                  // Admin global: puede asignar cualquier carrera
+                  fields.push(`id_carrera = $${idx++}`); values.push(id_carrera);
+              } else {
+                  // Admin local: validar que el id_carrera coincida con su propia carrera
+                  if (id_carrera !== currentUser.id_carrera) {
+                      await client.query('ROLLBACK');
+                      return reply.code(403).send({ message: 'Un administrador local solo puede asignar usuarios a su propia carrera.' });
+                  }
+                  fields.push(`id_carrera = $${idx++}`); values.push(currentUser.id_carrera);
+              }
+          } else if (currentUser.id_carrera !== null && userCurrentCarrera === null) {
+              // Si el admin es local, y el usuario no tiene carrera asignada, asignarle automáticamente la carrera del admin
+              fields.push(`id_carrera = $${idx++}`); values.push(currentUser.id_carrera);
           }
+
           if (activo !== undefined) { fields.push(`activo = $${idx++}`); values.push(activo); }
           if (password !== undefined) { 
               const hash = bcrypt.hashSync(password, 10);
@@ -171,6 +228,76 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/roles', async (request, reply) => {
       const result = await dbPool.query('SELECT * FROM "control financiero".roles ORDER BY nombre_rol');
       return result.rows;
+  });
+
+  // GET /admin/roles-permisos
+  fastify.get('/roles-permisos', async (request, reply) => {
+      const idCarrera = (request as any).user.id_carrera;
+      if (idCarrera !== null) {
+          return reply.code(403).send({ message: 'No autorizado' });
+      }
+
+      try {
+          const rolesRes = await dbPool.query('SELECT * FROM "control financiero".roles ORDER BY nombre_rol');
+          const permisosRes = await dbPool.query('SELECT * FROM "control financiero".permisos ORDER BY categoria, clave');
+          const rolPermisosRes = await dbPool.query('SELECT * FROM "control financiero".rol_permisos');
+          
+          return {
+              roles: rolesRes.rows,
+              permisos: permisosRes.rows,
+              rol_permisos: rolPermisosRes.rows
+          };
+      } catch (err: any) {
+          fastify.log.error(err);
+          return reply.code(500).send({ message: 'Error al obtener roles y permisos' });
+      }
+  });
+
+  // POST /admin/roles-permisos
+  fastify.post('/roles-permisos', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['id_rol', 'id_permisos'],
+        properties: {
+          id_rol: { type: 'integer' },
+          id_permisos: {
+            type: 'array',
+            items: { type: 'integer' }
+          }
+        },
+        additionalProperties: false
+      }
+    }
+  }, async (request, reply) => {
+      const idCarrera = (request as any).user.id_carrera;
+      if (idCarrera !== null) {
+          return reply.code(403).send({ message: 'No autorizado' });
+      }
+
+      const { id_rol, id_permisos } = request.body as { id_rol: number; id_permisos: number[] };
+      if (!id_rol || !Array.isArray(id_permisos)) {
+          return reply.code(400).send({ message: 'id_rol y id_permisos son requeridos' });
+      }
+
+      const client = await dbPool.connect();
+      try {
+          await client.query('BEGIN');
+          // Eliminar permisos actuales de ese rol
+          await client.query('DELETE FROM "control financiero".rol_permisos WHERE id_rol = $1', [id_rol]);
+          // Insertar los nuevos permisos
+          for (const id_permiso of id_permisos) {
+              await client.query('INSERT INTO "control financiero".rol_permisos (id_rol, id_permiso) VALUES ($1, $2)', [id_rol, id_permiso]);
+          }
+          await client.query('COMMIT');
+          return { success: true };
+      } catch (err: any) {
+          await client.query('ROLLBACK');
+          fastify.log.error(err);
+          return reply.code(500).send({ message: 'Error al guardar los permisos del rol' });
+      } finally {
+          client.release();
+      }
   });
 
   // GET /admin/carreras
