@@ -11,6 +11,7 @@ export interface CrudOptions {
 
 export class CrudService {
   private tableRef: string;
+  private tableUpper: string;
 
   constructor(
     private table: string,
@@ -18,6 +19,19 @@ export class CrudService {
     private idIsNumber: boolean = true, // para matricula usamos false
   ) {
     this.tableRef = `${DB_SCHEMA}.${this.table}`;
+    this.tableUpper = this.table.toUpperCase();
+  }
+
+  private async logAudit(userId: number | undefined | null, action: string, detail: string) {
+    if (userId == null) return;
+    try {
+      await dbPool.query(
+        `INSERT INTO "control financiero".bitacora_auditoria (id_usuario, accion, detalle) VALUES ($1, $2, $3)`,
+        [userId, action, detail]
+      );
+    } catch (err) {
+      console.error(`Error al registrar auditoría para ${action}:`, err);
+    }
   }
 
   private normalizeId(id: string | number) {
@@ -73,7 +87,7 @@ export class CrudService {
     return rows[0] || null;
   }
 
-  async create(data: Record<string, any>) {
+  async create(data: Record<string, any>, userId?: number | null) {
     const keys = Object.keys(data);
     if (keys.length === 0) {
       throw new Error('No hay datos para insertar');
@@ -90,10 +104,15 @@ export class CrudService {
     `;
 
     const { rows } = await dbPool.query(sql, values);
-    return rows[0];
+    const record = rows[0];
+
+    const idValue = record[this.idColumn];
+    await this.logAudit(userId, `CREATE_${this.tableUpper}`, `Registro creado con ID ${idValue}`);
+
+    return record;
   }
 
-  async update(id: string | number, data: Record<string, any>) {
+  async update(id: string | number, data: Record<string, any>, userId?: number | null) {
     const value = this.normalizeId(id);
 
     // Evitar que se actualice la PK
@@ -118,10 +137,17 @@ export class CrudService {
     `;
 
     const { rows } = await dbPool.query(sql, values);
-    return rows[0] || null;
+    const record = rows[0] || null;
+
+    if (record) {
+      const changedFields = keys.join(', ');
+      await this.logAudit(userId, `UPDATE_${this.tableUpper}`, `Registro ID ${value} actualizado. Campos: ${changedFields}`);
+    }
+
+    return record;
   }
 
-  async delete(id: string | number) {
+  async delete(id: string | number, userId?: number | null) {
     const value = this.normalizeId(id);
 
     const sql = `
@@ -131,6 +157,12 @@ export class CrudService {
     `;
 
     const { rows } = await dbPool.query(sql, [value]);
-    return rows[0] || null;
+    const record = rows[0] || null;
+
+    if (record) {
+      await this.logAudit(userId, `DELETE_${this.tableUpper}`, `Registro ID ${value} eliminado`);
+    }
+
+    return record;
   }
 }

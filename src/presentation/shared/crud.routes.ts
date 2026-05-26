@@ -8,6 +8,8 @@ interface IdParams {
 
 export interface BuildCrudOptions {
   resolveScope?: (request: any) => CrudOptions | undefined;
+  createSchema?: object;
+  updateSchema?: object;
 }
 
 export const buildCrudRoutes = (
@@ -42,10 +44,12 @@ export const buildCrudRoutes = (
     // POST /
     fastify.post(
       '/',
+      { schema: { body: opts?.createSchema } },
       async (request, reply) => {
         try {
           const body = request.body as Record<string, unknown>;
-          const created = await service.create(body);
+          const userId = (request as any)?.user?.id;
+          const created = await service.create(body, userId);
           return reply.code(201).send(created);
         } catch (err: any) {
           fastify.log.error(err);
@@ -63,6 +67,7 @@ export const buildCrudRoutes = (
     // PUT /:id
     fastify.put<{ Params: IdParams }>(
       `/:${idParamName}`,
+      { schema: { body: opts?.updateSchema } },
       async (request, reply) => {
         try {
           const id = request.params[idParamName];
@@ -75,7 +80,8 @@ export const buildCrudRoutes = (
             return reply.code(404).send({ message: 'No encontrado o sin permisos' });
           }
 
-          const updated = await service.update(id, body);
+          const userId = (request as any)?.user?.id;
+          const updated = await service.update(id, body, userId);
 
           if (!updated) {
             return reply.code(404).send({ message: 'No se pudo actualizar' });
@@ -109,7 +115,8 @@ export const buildCrudRoutes = (
             return reply.code(404).send({ message: 'No encontrado o sin permisos' });
           }
 
-          const deleted = await service.delete(id);
+          const userId = (request as any)?.user?.id;
+          const deleted = await service.delete(id, userId);
 
           if (!deleted) {
             return reply.code(404).send({ message: 'No se pudo eliminar' });
