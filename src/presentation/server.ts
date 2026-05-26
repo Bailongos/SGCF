@@ -7,6 +7,7 @@ import { AppRoutes } from './routes';
 import { dbPool } from '../data';
 import { authMiddleware } from './shared/auth.middleware';
 
+import { envs } from '../config/envs';
 
 interface ServerOptions {
   port: number;
@@ -24,10 +25,23 @@ export class Server {
   async start() {
     // Plugins / middlewares globales
     // await this.app.register(cors, { origin: true });
+    const allowedOrigins = [envs.FRONTEND_URL, 'http://localhost:5173', 'http://127.0.0.1:5173'];
     await this.app.register(cors, {
-      origin: true, // permite cualquier origen (en dev está bien)
+      origin: (origin, cb) => {
+        // En desarrollo o si no hay origen (ej. Postman), permitir
+        if (envs.NODE_ENV !== 'production' || !origin) {
+          cb(null, true);
+          return;
+        }
+        // En producción, validar contra la lista estricta
+        if (allowedOrigins.includes(origin)) {
+          cb(null, true);
+        } else {
+          cb(new Error('No permitido por CORS'), false);
+        }
+      },
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id', 'x-user-carrera'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
     });
 
     // Seguridad: Cabeceras HTTP (Helmet)
@@ -68,7 +82,7 @@ export class Server {
       await dbPool.end();
     });
 
-    await this.app.listen({ port: this.port, host: '0.0.0.0' });
+    await this.app.listen({ port: this.port, host: '::' });
   }
 
   get instance() {

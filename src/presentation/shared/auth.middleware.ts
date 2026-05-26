@@ -25,18 +25,6 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
     return reply.code(401).send({ message: 'Token de acceso inválido o expirado' });
   }
 
-  // 2. Fallback a headers manuales (Compatibilidad o Debug)
-  const userId = request.headers['x-user-id'];
-  const userCarrera = request.headers['x-user-carrera'];
-
-  if (userId) {
-    (request as any).user = {
-      id: userId,
-      id_carrera: userCarrera ? parseInt(userCarrera as string, 10) : null
-    };
-    return;
-  }
-
-  // 3. Si no hay nada, error
-  return reply.code(401).send({ message: 'No autenticado. Se requiere Token u Headers de sesión' });
+  // Si no hay token de autorización
+  return reply.code(401).send({ message: 'No autenticado. Se requiere Token de sesión válido' });
 }
