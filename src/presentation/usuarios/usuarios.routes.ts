@@ -19,12 +19,13 @@ const usuariosRoutes: FastifyPluginAsync = async (fastify) => {
       if (body.id_rol !== undefined && (body.id_carrera !== undefined || body.id_carrera === null)) {
         const roleRes = await dbPool.query('SELECT nombre_rol FROM "control financiero".roles WHERE id_rol = $1', [body.id_rol]);
         const roleName = roleRes.rows[0]?.nombre_rol;
+        const roleNameLower = roleName ? String(roleName).toLowerCase() : '';
 
-        if (roleName === 'Administrador' && body.id_carrera !== null) {
+        if (roleNameLower === 'administrador' && body.id_carrera !== null) {
           return reply.code(400).send({ message: 'El perfil Administrador debe tener alcance global (id_carrera = NULL)' });
         }
         
-        if (roleName === 'Coordinador' && body.id_carrera === null) {
+        if (roleNameLower === 'coordinador' && body.id_carrera === null) {
           return reply.code(400).send({ message: 'El perfil Coordinador debe estar asociado a una carrera (id_carrera NOT NULL)' });
         }
       }

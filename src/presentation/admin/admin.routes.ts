@@ -11,9 +11,10 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
        return reply.code(401).send({ message: 'No autenticado.' });
     }
 
-    // Validar roles permitidos para las rutas de administración
-    const allowedRoles = ['Administrador', 'Coordinador'];
-    if (!allowedRoles.includes(user.role)) {
+    // Validar roles permitidos para las rutas de administración (insensible a mayúsculas)
+    const allowedRoles = ['administrador', 'coordinador'];
+    const userRoleLower = user.role ? String(user.role).toLowerCase() : '';
+    if (!allowedRoles.includes(userRoleLower)) {
        return reply.code(403).send({ message: 'No tienes los permisos necesarios para acceder a las rutas de administración.' });
     }
   });
@@ -162,7 +163,8 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
               const roleRes = await client.query('SELECT nombre_rol FROM "control financiero".roles WHERE id_rol = $1', [id_rol]);
               const roleName = roleRes.rows[0]?.nombre_rol;
               
-              if (roleName === 'Administrador' && currentUser.id_carrera !== null) {
+              const roleNameLower = roleName ? String(roleName).toLowerCase() : '';
+              if (roleNameLower === 'administrador' && currentUser.id_carrera !== null) {
                   await client.query('ROLLBACK');
                   return reply.code(403).send({ message: 'Un administrador local no puede asignar el rol de Administrador Global.' });
               }

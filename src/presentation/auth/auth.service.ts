@@ -59,6 +59,7 @@ export class AuthService {
         id_carrera: user.id_carrera,
         role: user.nombre_rol,
         activo: user.activo,
+        avatar: user.foto_url ?? null,
         permissions
       },
       token
@@ -70,7 +71,8 @@ export class AuthService {
     const { username, password } = loginUserDto;
 
     const userRes = await dbPool.query(
-      `SELECT u.id_usuario, u.username, u.password, u.email, u.id_rol, u.id_carrera, r.nombre_rol, u.activo
+      `SELECT u.id_usuario, u.username, u.password, u.email, u.id_rol, u.id_carrera, r.nombre_rol, u.activo,
+              (SELECT foto_url FROM "control financiero".usuarios_identidades WHERE id_usuario = u.id_usuario AND foto_url IS NOT NULL LIMIT 1) as foto_url
        FROM "control financiero".usuarios u
        JOIN "control financiero".roles r ON u.id_rol = r.id_rol
        WHERE u.username = $1`,
@@ -183,7 +185,7 @@ export class AuthService {
   }
 
   // Microsoft Login
-  static async loginMicrosoft(idToken: string) {
+  static async loginMicrosoft(idToken: string, fotoUrl?: string | null) {
     let decoded: any = null;
     try {
         decoded = await new Promise((resolve, reject) => {
@@ -220,7 +222,7 @@ Token prefix: ${idToken ? idToken.substring(0, 20) : 'none'}...
         email: decoded.email || decoded.preferred_username,
         email_verificado: true, 
         nombre: decoded.name,
-        foto_url: null 
+        foto_url: fotoUrl || null 
     });
   }
 
@@ -258,6 +260,17 @@ Token prefix: ${idToken ? idToken.substring(0, 20) : 'none'}...
         // Si el usuario existe pero está inactivo, bloquear el acceso
         if (!user.activo) {
             throw new Error('Tu cuenta aún no ha sido activada. Contacta al administrador para que te asigne un rol y carrera.');
+        }
+
+        // Actualizar foto de perfil si viene una nueva y es diferente
+        if (data.foto_url && data.foto_url !== user.foto_url) {
+            await dbPool.query(
+                `UPDATE "control financiero".usuarios_identidades 
+                 SET foto_url = $1, updated_at = NOW() 
+                 WHERE id_identidad = $2`,
+                [data.foto_url, user.id_identidad]
+            );
+            user.foto_url = data.foto_url;
         }
     } else {
         const client = await dbPool.connect();
@@ -301,7 +314,10 @@ Token prefix: ${idToken ? idToken.substring(0, 20) : 'none'}...
                 );
 
                 await client.query('COMMIT');
-                user = existingUser;
+                user = {
+                    ...existingUser,
+                    foto_url: data.foto_url
+                };
             } else {
                 // 1. Obtener rol 'Pendiente' — sin carrera para no violar el trigger de scope
                 const roleRes = await client.query(

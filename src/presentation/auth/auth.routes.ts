@@ -107,7 +107,8 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
         type: 'object',
         properties: {
           token: { type: 'string' },
-          id_token: { type: 'string' }
+          id_token: { type: 'string' },
+          foto_url: { type: 'string', nullable: true }
         },
         anyOf: [
           { required: ['token'] },
@@ -117,13 +118,13 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
   }, async (request, reply) => {
-    const { token, id_token } = request.body as any;
+    const { token, id_token, foto_url } = request.body as any;
     const finalToken = token || id_token;
 
     if (!finalToken) return reply.code(400).send({ message: 'Token es requerido' });
 
     try {
-      const result = await AuthService.loginMicrosoft(finalToken);
+      const result = await AuthService.loginMicrosoft(finalToken, foto_url);
       return result;
     } catch (err: any) {
       fastify.log.error(err);
