@@ -76,13 +76,14 @@ const alumnosRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         body: {
           type: 'object',
-          required: ['matricula', 'nombre', 'paterno', 'id_carrera'],
+          required: ['matricula', 'nombre_completo', 'id_carrera'],
           properties: {
             matricula: { type: 'string' },
-            nombre: { type: 'string' },
-            paterno: { type: 'string' },
-            materno: { type: 'string' },
+            nombre_completo: { type: 'string' },
+            email_institucional: { type: 'string' },
+            telefono_contacto: { type: 'string' },
             id_carrera: { type: 'integer' },
+            semestre_actual: { type: 'integer' },
             activo: { type: 'boolean' }
           }
         }
@@ -165,10 +166,11 @@ const alumnosRoutes: FastifyPluginAsync = async (fastify) => {
         body: {
           type: 'object',
           properties: {
-            nombre: { type: 'string' },
-            paterno: { type: 'string' },
-            materno: { type: 'string' },
+            nombre_completo: { type: 'string' },
+            email_institucional: { type: 'string' },
+            telefono_contacto: { type: 'string' },
             id_carrera: { type: 'integer' },
+            semestre_actual: { type: 'integer' },
             activo: { type: 'boolean' }
           }
         }
